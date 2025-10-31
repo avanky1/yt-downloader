@@ -1,12 +1,32 @@
 // app/api/formats/route.ts
 import { NextRequest } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 
-const execAsync = promisify(exec);
-
+// Must run in Node.js (not Edge)
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30; // Vercel-like timeout (ignored on self-hosted)
+export const maxDuration = 30;
+
+// Helper to run yt-dlp safely
+function runYtDlp(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('yt-dlp', args);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (chunk) => (stdout += chunk.toString()));
+    proc.stderr.on('data', (chunk) => (stderr += chunk.toString()));
+
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`yt-dlp failed: ${stderr || stdout}`));
+      }
+    });
+  });
+}
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
@@ -21,9 +41,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { stdout } = await execAsync(
-      `yt-dlp --no-warnings --compat-options no-youtube-unavailable-videos --dump-json "${url}"`
-    );
+    // ✅ ADD COOKIES HERE
+    const stdout = await runYtDlp([
+      '--cookies', '/home/ubuntu/cookies.txt',
+      '--no-warnings',
+      '--compat-options', 'no-youtube-unavailable-videos',
+      '--dump-json',
+      url,
+    ]);
+
     const info = JSON.parse(stdout) as { formats?: unknown[] };
 
     type YTFormat = {
@@ -34,16 +60,19 @@ export async function GET(request: NextRequest) {
       [key: string]: unknown;
     };
 
-    const formats: YTFormat[] = Array.isArray(info.formats) ? (info.formats as YTFormat[]) : [];
+    const formats: YTFormat[] = Array.isArray(info.formats)
+      ? (info.formats as YTFormat[])
+      : [];
 
     const filtered = formats
-      .filter((f) =>
-        (f.vcodec !== 'none' || f.acodec !== 'none') &&
-        ['mp4', 'webm'].includes(f.ext || '')
+      .filter(
+        (f) =>
+          (f.vcodec !== 'none' || f.acodec !== 'none') &&
+          ['mp4', 'webm'].includes(f.ext || '')
       )
       .sort((a, b) => {
-        const resA = parseInt(a.resolution?.split('x')[1] ?? '0') || 0;
-        const resB = parseInt(b.resolution?.split('x')[1] ?? '0') || 0;
+        const resA = parseInt(a.resolution?.split('x')?.[1] ?? '0', 10) || 0;
+        const resB = parseInt(b.resolution?.split('x')?.[1] ?? '0', 10) || 0;
         return resB - resA;
       });
 
@@ -59,6 +88,8 @@ export async function GET(request: NextRequest) {
         return 'unknown';
       }
     };
-    return new Response(`Failed: ${getErrorMessage(err) || 'unknown'}`, { status: 500 });
+    return new Response(`Failed: ${getErrorMessage(err) || 'unknown'}`, {
+      status: 500,
+    });
   }
 }
