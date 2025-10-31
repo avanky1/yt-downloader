@@ -33,8 +33,14 @@ export default function HomePage() {
       if (data.formats?.length) {
         setSelectedFormat(data.formats[0].format_id);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load formats');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || 'Failed to load formats');
+      } else if (typeof err === 'string') {
+        setError(err);
+      } else {
+        setError('Failed to load formats');
+      }
       setStatus('error');
     } finally {
       setStatus('idle');
@@ -70,7 +76,7 @@ export default function HomePage() {
           YouTube Downloader
         </h1>
         <p className="text-gray-400 mt-2 text-sm">
-          Personal use only • Respect copyright
+          Personal use only 
         </p>
       </div>
 
@@ -91,7 +97,7 @@ export default function HomePage() {
           disabled={!url || status === 'fetching'}
           className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
         >
-          {status === 'fetching' ? 'Loading formats...' : '🔍 Get Available Qualities'}
+          {status === 'fetching' ? 'Loading formats...' : 'Get Available Qualities'}
         </button>
 
         {error && <p className="mt-3 text-red-400 text-sm">{error}</p>}
@@ -125,14 +131,14 @@ export default function HomePage() {
                 Downloading...
               </>
             ) : (
-              '📥 Download Video'
+              ' Download Video'
             )}
           </button>
         )}
       </div>
 
       <footer className="mt-10 text-center text-gray-500 text-xs">
-        <p>For personal & educational use only. Not affiliated with YouTube.</p>
+        {/* <p>For personal & educational use only. Not affiliated with YouTube.</p> */}
       </footer>
     </div>
   );

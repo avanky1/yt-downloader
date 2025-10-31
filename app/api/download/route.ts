@@ -1,11 +1,11 @@
-// app/api/download/route.ts
 import { NextRequest } from 'next/server';
 import { spawn, ChildProcess } from 'child_process';
 import { Readable } from 'stream';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+// Enforce Node.js runtime (required for spawn, streams, and request.signal)
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // Only respected on some platforms
 
 function sanitizeAscii(title: string): string {
   return title
@@ -24,13 +24,40 @@ function sanitizeUtf8(title: string): string {
     .substring(0, 100);
 }
 
-export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+async function fetchVideoTitle(url: string): Promise<string> {
+  try {
+    const proc = spawn('yt-dlp', [
+      '--no-warnings',
+      '--compat-options', 'no-youtube-unavailable-videos',
+      '--dump-json',
+      url,
+    ]);
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (chunk) => (stdout += chunk.toString()));
+    proc.stderr.on('data', (chunk) => (stderr += chunk.toString()));
+
+    const exitCode = await new Promise<number>((resolve) => {
+      proc.on('close', resolve);
+    });
+
+    if (exitCode === 0) {
+      const info = JSON.parse(stdout);
+      return info.title || 'video';
+    }
+  } catch (err) {
+    console.warn('Failed to fetch video title:', err);
+  }
+  return 'video';
+}
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
   const formatId = request.nextUrl.searchParams.get('format') || 'best';
 
+  // Validate URL
   if (!url || (!url.includes('youtube.com') && !url.includes('youtu.be'))) {
     return new Response('Invalid YouTube URL', { status: 400 });
   }
@@ -41,74 +68,70 @@ export async function GET(request: NextRequest) {
     return new Response('Invalid URL', { status: 400 });
   }
 
-  // Fetch title
-  let title = 'video';
-  try {
-    const { stdout } = await execAsync(
-      `yt-dlp --no-warnings --compat-options no-youtube-unavailable-videos --dump-json "${url}"`
-    );
-    const info = JSON.parse(stdout);
-    title = info.title || 'video';
-  } catch (err) {
-    console.warn('Title fetch failed');
-  }
-
+  // Fetch title for filename
+  const title = await fetchVideoTitle(url);
   const asciiName = sanitizeAscii(title) || 'video';
   const utf8Name = sanitizeUtf8(title) || 'video';
   const fallback = `${asciiName}.mp4`;
   const encoded = encodeURIComponent(`${utf8Name}.mp4`);
 
-  // Create stream
+  // Create readable stream
   const stream = new Readable();
   stream._read = () => {};
 
-  // Spawn yt-dlp
+  // Spawn yt-dlp process
   const ytDlp: ChildProcess = spawn('yt-dlp', [
     '--no-warnings',
     '--no-call-home',
-    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    '--referer', 'https://www.youtube.com/',
-    '-f', formatId,
-    '--merge-output-format', 'mp4',
-    '-o', '-',
+    '--user-agent',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    '--referer',
+    'https://www.youtube.com/',
+    '-f',
+    formatId,
+    '--merge-output-format',
+    'mp4',
+    '-o',
+    '-',
     url,
   ]);
 
-  // 🔥 Handle client disconnect → kill yt-dlp
   let clientDisconnected = false;
 
-  // @ts-ignore – access underlying Node.js request
-  const nodeReq = request as unknown as { socket?: { destroy: () => void } };
-  const nodeRes = new Response(stream as any, {
-    headers: {
-      'Content-Type': 'video/mp4',
-      'Content-Disposition': `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`,
-      'Cache-Control': 'no-store',
-    },
-  }) as unknown as { socket?: { on: (ev: string, fn: () => void) => void } };
+  const cleanup = () => {
+    if (clientDisconnected) return;
+    clientDisconnected = true;
+    ytDlp.kill('SIGTERM');
+    stream.destroy();
+  };
 
-  // Detect client abort (works in Node.js environments like standalone server, Render, etc.)
-  if (nodeReq.socket) {
-    const onClientDisconnect = () => {
-      if (!clientDisconnected) {
-        clientDisconnected = true;
-        console.log('	Client disconnected – killing yt-dlp');
-        ytDlp.kill('SIGTERM');
-        stream.destroy();
-      }
-    };
-
-    // When client closes connection
-    nodeReq.socket.on('close', onClientDisconnect);
-    nodeReq.socket.on('error', onClientDisconnect);
-
-    // Also listen on response (fallback)
-    if (nodeRes.socket) {
-      nodeRes.socket.on('close', onClientDisconnect);
-    }
+  // ✅ Reliable client disconnect detection
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    request.signal.addEventListener('abort', cleanup);
   }
 
-  // Handle yt-dlp errors
+  // Timeout (5 minutes max)
+  const TIMEOUT_MS = 295_000;
+  const timeoutId = setTimeout(() => {
+    if (!clientDisconnected) {
+      console.log('Download timed out – killing yt-dlp');
+      cleanup();
+    }
+  }, TIMEOUT_MS);
+
+  // Handle yt-dlp output
+  ytDlp.stdout?.on('data', (chunk) => {
+    if (!clientDisconnected) {
+      stream.push(chunk);
+    }
+  });
+
+  ytDlp.stderr?.on('data', (data) => {
+    if (!clientDisconnected) {
+      console.warn('yt-dlp stderr:', data.toString().trim());
+    }
+  });
+
   ytDlp.on('error', (err) => {
     if (!clientDisconnected) {
       console.error('yt-dlp spawn error:', err);
@@ -116,27 +139,25 @@ export async function GET(request: NextRequest) {
     }
   });
 
-  ytDlp.stderr.on('data', (data) => {
-    if (!clientDisconnected) {
-      console.error('yt-dlp stderr:', data.toString());
-    }
-  });
-
-  ytDlp.stdout.on('data', (chunk) => {
-    if (!clientDisconnected) {
-      stream.push(chunk);
-    }
-  });
-
   ytDlp.on('close', (code) => {
+    clearTimeout(timeoutId);
     if (!clientDisconnected) {
       if (code !== 0) {
-        stream.destroy(new Error(`yt-dlp failed with code ${code}`));
+        const msg = `yt-dlp exited with code ${code}`;
+        console.error(msg);
+        stream.destroy(new Error(msg));
       } else {
-        stream.push(null);
+        stream.push(null); // EOF
       }
     }
   });
 
-  return nodeRes;
+  return new Response(stream as any, {
+    headers: {
+      'Content-Type': 'video/mp4',
+      'Content-Disposition': `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`,
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+    },
+  });
 }

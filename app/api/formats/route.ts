@@ -24,23 +24,41 @@ export async function GET(request: NextRequest) {
     const { stdout } = await execAsync(
       `yt-dlp --no-warnings --compat-options no-youtube-unavailable-videos --dump-json "${url}"`
     );
-    const info = JSON.parse(stdout);
-    const formats = Array.isArray(info.formats) ? info.formats : [];
+    const info = JSON.parse(stdout) as { formats?: unknown[] };
+
+    type YTFormat = {
+      vcodec?: string;
+      acodec?: string;
+      ext?: string;
+      resolution?: string;
+      [key: string]: unknown;
+    };
+
+    const formats: YTFormat[] = Array.isArray(info.formats) ? (info.formats as YTFormat[]) : [];
 
     const filtered = formats
-      .filter((f: any) => 
-        (f.vcodec !== 'none' || f.acodec !== 'none') && 
-        ['mp4', 'webm'].includes(f.ext)
+      .filter((f) =>
+        (f.vcodec !== 'none' || f.acodec !== 'none') &&
+        ['mp4', 'webm'].includes(f.ext || '')
       )
-      .sort((a: any, b: any) => {
-        const resA = parseInt(a.resolution?.split('x')[1] || '0') || 0;
-        const resB = parseInt(b.resolution?.split('x')[1] || '0') || 0;
+      .sort((a, b) => {
+        const resA = parseInt(a.resolution?.split('x')[1] ?? '0') || 0;
+        const resB = parseInt(b.resolution?.split('x')[1] ?? '0') || 0;
         return resB - resA;
       });
 
     return Response.json({ formats: filtered });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Format fetch error:', err);
-    return new Response(`Failed: ${err.message || 'unknown'}`, { status: 500 });
+    const getErrorMessage = (e: unknown): string => {
+      if (e instanceof Error) return e.message;
+      if (typeof e === 'string') return e;
+      try {
+        return JSON.stringify(e) ?? 'unknown';
+      } catch {
+        return 'unknown';
+      }
+    };
+    return new Response(`Failed: ${getErrorMessage(err) || 'unknown'}`, { status: 500 });
   }
 }
