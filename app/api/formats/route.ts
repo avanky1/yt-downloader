@@ -2,12 +2,10 @@
 import { NextRequest } from 'next/server';
 import { spawn } from 'child_process';
 
-// Must run in Node.js (not Edge)
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-// Helper to run yt-dlp safely
 function runYtDlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = spawn('yt-dlp', args);
@@ -41,9 +39,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // ✅ ADD COOKIES HERE
+    // ✅ NO --cookies FLAG — safe for public videos
     const stdout = await runYtDlp([
-      '--cookies', '/home/ubuntu/cookies.txt',
       '--no-warnings',
       '--compat-options', 'no-youtube-unavailable-videos',
       '--dump-json',
