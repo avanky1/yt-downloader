@@ -1,4 +1,3 @@
-// app/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -8,40 +7,34 @@ type Format = {
   ext: string;
   resolution?: string;
   filesize?: number;
-  fps?: number;
   format_note?: string;
-  acodec?: string;
-  vcodec?: string;
 };
 
 export default function HomePage() {
   const [url, setUrl] = useState('');
   const [formats, setFormats] = useState<Format[]>([]);
   const [selectedFormat, setSelectedFormat] = useState('');
-  const [status, setStatus] = useState<'idle' | 'fetching' | 'downloading' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'fetching' | 'downloading'>('idle');
+  const [countdown, setCountdown] = useState(20);
+  const [showStarting, setShowStarting] = useState(false);
   const [error, setError] = useState('');
+  const [videoTitle, setVideoTitle] = useState('');
 
   const fetchFormats = async () => {
     if (!url) return;
     setStatus('fetching');
     setError('');
+
     try {
       const res = await fetch(`/api/formats?url=${encodeURIComponent(url)}`);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
+
       setFormats(data.formats || []);
-      if (data.formats?.length) {
-        setSelectedFormat(data.formats[0].format_id);
-      }
+      setVideoTitle(data.title || 'video'); // ✅ store title
+      if (data.formats?.length) setSelectedFormat(data.formats[0].format_id);
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || 'Failed to load formats');
-      } else if (typeof err === 'string') {
-        setError(err);
-      } else {
-        setError('Failed to load formats');
-      }
-      setStatus('error');
+      setError(err instanceof Error ? err.message : 'Failed to load formats');
     } finally {
       setStatus('idle');
     }
@@ -50,65 +43,93 @@ export default function HomePage() {
   const handleDownload = () => {
     if (!selectedFormat) return;
     setStatus('downloading');
-    setError('');
+    setCountdown(20);
+    setShowStarting(false);
 
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setShowStarting(true);
+          setStatus('idle');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // ✅ Safe filename (remove invalid characters)
+    const safeTitle = videoTitle.replace(/[<>:"/\\|?*]+/g, '').trim() || 'video';
+
+    // ✅ Add title to download name
     const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&format=${encodeURIComponent(selectedFormat)}`;
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = '';
+    link.download = `${safeTitle}.mp4`; // ✅ file will have the video name
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
-    setStatus('idle');
   };
 
   const formatLabel = (fmt: Format) => {
     const res = fmt.resolution || fmt.format_note || fmt.format_id;
-    const size = fmt.filesize ? ` (${(fmt.filesize / (1024 ** 2)).toFixed(1)} MB)` : '';
-    return `${res} • ${fmt.ext}${size}`;
+    const size = fmt.filesize ? ` • ${(fmt.filesize / (1024 ** 2)).toFixed(1)} MB` : '';
+    return `${res}${size} (${fmt.ext})`;
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-4 sm:p-6">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-          YouTube Downloader
-        </h1>
-        <p className="text-gray-400 mt-2 text-sm">
-          Personal use only 
-        </p>
-      </div>
+    <div
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{ backgroundColor: '#6a6a6a' }}
+    >
+      <div
+        className="w-full max-w-md rounded-xl shadow-lg p-6 backdrop-blur-sm"
+        style={{ backgroundColor: '#7a7a7a', color: '#f5f5f5' }}
+      >
+        {/* Header */}
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight">YouTube Downloader</h1>
+          <p className="text-sm text-gray-200 opacity-80 mt-1">
+            Downloads videos with real title
+          </p>
+        </div>
 
-      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-5 border border-gray-700 shadow-lg">
+        {/* URL Input */}
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-2 text-gray-300">YouTube URL</label>
           <input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://youtu.be/..."
-            className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500"
+            placeholder="Paste YouTube link..."
+            className="w-full p-3 bg-[#606060] rounded-lg border border-[#555] text-sm placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-white/20"
           />
         </div>
 
+        {/* Get Formats Button */}
         <button
           onClick={fetchFormats}
           disabled={!url || status === 'fetching'}
-          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+          className="w-full py-2.5 bg-white/20 hover:bg-white/30 text-white rounded-lg transition disabled:opacity-50 text-sm font-medium"
         >
           {status === 'fetching' ? 'Loading formats...' : 'Get Available Qualities'}
         </button>
 
-        {error && <p className="mt-3 text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-red-300 text-sm mt-2 text-center">{error}</p>}
 
+        {/* Show title */}
+        {videoTitle && formats.length > 0 && (
+          <p className="text-center text-sm text-gray-100 mt-3 opacity-80">
+            🎬 {videoTitle}
+          </p>
+        )}
+
+        {/* Format Selection */}
         {formats.length > 0 && (
           <div className="mt-5">
-            <label className="block text-sm font-medium mb-2 text-gray-300">Select Quality</label>
             <select
               value={selectedFormat}
               onChange={(e) => setSelectedFormat(e.target.value)}
-              className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white"
+              className="w-full p-3 bg-[#606060] border border-[#555] rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-white/30"
             >
               {formats.map((fmt) => (
                 <option key={fmt.format_id} value={fmt.format_id}>
@@ -119,27 +140,28 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* Download Button */}
         {selectedFormat && (
           <button
             onClick={handleDownload}
             disabled={status === 'downloading'}
-            className="mt-5 w-full py-2.5 px-4 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+            className="mt-5 w-full py-2.5 bg-[#4caf50] hover:bg-[#45a047] text-white rounded-lg font-medium transition disabled:opacity-60 text-sm"
           >
             {status === 'downloading' ? (
-              <>
-                <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                Downloading...
-              </>
+              <>Downloading... ({countdown}s)</>
+            ) : showStarting ? (
+              'Starting soon...'
             ) : (
-              ' Download Video'
+              'Download Video'
             )}
           </button>
         )}
-      </div>
 
-      <footer className="mt-10 text-center text-gray-500 text-xs">
-        {/* <p>For personal & educational use only. Not affiliated with YouTube.</p> */}
-      </footer>
+        {/* Footer */}
+        <div className="text-center text-xs text-gray-300 mt-6 border-t border-white/10 pt-4">
+          © 2025 GrayTube Downloader
+        </div>
+      </div>
     </div>
   );
 }

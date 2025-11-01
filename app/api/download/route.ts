@@ -27,11 +27,15 @@ function sanitizeUtf8(title: string): string {
 async function fetchVideoTitle(url: string): Promise<string> {
   try {
     const proc = spawn('yt-dlp', [
+      '--cookies', 
+      // '/home/ubuntu/yt-downloader/cookies.txt',   // ✅ Added
+      './cookies.txt',
       '--no-warnings',
       '--compat-options', 'no-youtube-unavailable-videos',
       '--dump-json',
       url,
     ]);
+
 
     let stdout = '';
     let stderr = '';
@@ -81,20 +85,22 @@ export async function GET(request: NextRequest) {
 
   // Spawn yt-dlp process
   const ytDlp: ChildProcess = spawn('yt-dlp', [
-    '--no-warnings',
-    '--no-call-home',
-    '--user-agent',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    '--referer',
-    'https://www.youtube.com/',
-    '-f',
-    formatId,
-    '--merge-output-format',
-    'mp4',
-    '-o',
-    '-',
-    url,
-  ]);
+  '--cookies', '/home/ubuntu/yt-downloader/cookies.txt',   // ✅ Added
+  '--no-warnings',
+  '--no-call-home',
+  '--user-agent',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  '--referer',
+  'https://www.youtube.com/',
+  '-f',
+  formatId,
+  '--merge-output-format',
+  'mp4',
+  '-o',
+  '-',
+  url,
+]);
+
 
   let clientDisconnected = false;
 
