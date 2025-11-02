@@ -16,6 +16,7 @@ export default function HomePage() {
   const [selectedFormat, setSelectedFormat] = useState('');
   const [status, setStatus] = useState<'idle' | 'fetching' | 'downloading'>('idle');
   const [countdown, setCountdown] = useState(20);
+  const [countdown1, setCountdown1] = useState(12);
   const [showStarting, setShowStarting] = useState(false);
   const [error, setError] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
@@ -31,7 +32,7 @@ export default function HomePage() {
       const data = await res.json();
 
       setFormats(data.formats || []);
-      setVideoTitle(data.title || 'video'); // ✅ store title
+      setVideoTitle(data.title || 'video');
       if (data.formats?.length) setSelectedFormat(data.formats[0].format_id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load formats');
@@ -58,14 +59,11 @@ export default function HomePage() {
       });
     }, 1000);
 
-    // ✅ Safe filename (remove invalid characters)
     const safeTitle = videoTitle.replace(/[<>:"/\\|?*]+/g, '').trim() || 'video';
-
-    // ✅ Add title to download name
     const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&format=${encodeURIComponent(selectedFormat)}`;
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = `${safeTitle}.mp4`; // ✅ file will have the video name
+    link.download = `${safeTitle}.mp4`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -78,30 +76,24 @@ export default function HomePage() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: '#6a6a6a' }}
-    >
-      <div
-        className="w-full max-w-md rounded-xl shadow-lg p-6 backdrop-blur-sm"
-        style={{ backgroundColor: '#7a7a7a', color: '#f5f5f5' }}
-      >
+    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 border border-gray-200">
         {/* Header */}
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">YouTube Downloader</h1>
-          <p className="text-sm text-gray-200 opacity-80 mt-1">
-            Downloads videos with real title
+          <h1 className="text-3xl font-bold text-gray-800 tracking-tight">YouTube Downloader</h1>
+          <p className="text-sm  text-red-500 font-bold mt-1">
+            Coded by: Avanish
           </p>
         </div>
 
         {/* URL Input */}
-        <div className="mb-4">
+        <div className="mb-4 font-semibold">
           <input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="Paste YouTube link..."
-            className="w-full p-3 bg-[#606060] rounded-lg border border-[#555] text-sm placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-white/20"
+            className="w-full p-3 bg-gray-50 rounded-xl border border-gray-300 text-gray-800 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
           />
         </div>
 
@@ -109,18 +101,25 @@ export default function HomePage() {
         <button
           onClick={fetchFormats}
           disabled={!url || status === 'fetching'}
-          className="w-full py-2.5 bg-white/20 hover:bg-white/30 text-white rounded-lg transition disabled:opacity-50 text-sm font-medium"
+          className="w-full py-3 bg-gray-700 hover:bg-gray-500 disabled:bg-gray-700 text-white rounded-xl  text-sm transition-all font-semibold cursor-pointer duration-200 shadow-sm"
         >
-          {status === 'fetching' ? 'Loading formats...' : 'Get Available Qualities'}
+          {status === 'fetching' ? 'Loading formats... ' : 'Get Available Qualities'
+          }
         </button>
 
-        {error && <p className="text-red-300 text-sm mt-2 text-center">{error}</p>}
-
-        {/* Show title */}
-        {videoTitle && formats.length > 0 && (
-          <p className="text-center text-sm text-gray-100 mt-3 opacity-80">
-            🎬 {videoTitle}
+        {error && (
+          <p className="text-red-600 text-sm mt-3 text-center font-medium bg-red-50 py-2 rounded-lg border border-red-200">
+            {error}
           </p>
+        )}
+
+        {/* Video Title */}
+        {videoTitle && formats.length > 0 && (
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-sm text-blue-800 font-medium text-center">
+               {videoTitle}
+            </p>
+          </div>
         )}
 
         {/* Format Selection */}
@@ -129,7 +128,7 @@ export default function HomePage() {
             <select
               value={selectedFormat}
               onChange={(e) => setSelectedFormat(e.target.value)}
-              className="w-full p-3 bg-[#606060] border border-[#555] rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-white/30"
+              className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
             >
               {formats.map((fmt) => (
                 <option key={fmt.format_id} value={fmt.format_id}>
@@ -145,22 +144,19 @@ export default function HomePage() {
           <button
             onClick={handleDownload}
             disabled={status === 'downloading'}
-            className="mt-5 w-full py-2.5 bg-[#4caf50] hover:bg-[#45a047] text-white rounded-lg font-medium transition disabled:opacity-60 text-sm"
+            className="mt-5 w-full py-3 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-500 text-white rounded-xl font-medium text-sm transition-all cursor-pointer duration-200 shadow-sm"
           >
             {status === 'downloading' ? (
               <>Downloading... ({countdown}s)</>
             ) : showStarting ? (
-              'Starting soon...'
+              'Starting download...'
             ) : (
               'Download Video'
             )}
           </button>
         )}
 
-        {/* Footer */}
-        <div className="text-center text-xs text-gray-300 mt-6 border-t border-white/10 pt-4">
-          © 2025 GrayTube Downloader
-        </div>
+       
       </div>
     </div>
   );
