@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { spawn, ChildProcess } from 'child_process';
 import { Readable } from 'stream';
 
-// Enforce Node.js runtime (required for spawn, streams, and request.signal)
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // Only respected on some platforms

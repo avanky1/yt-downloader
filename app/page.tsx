@@ -1,6 +1,8 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
+import { useState } from "react";
+import { GoPaste } from "react-icons/go";
+import { IoIosLink } from "react-icons/io";
 
 type Format = {
   format_id: string;
@@ -11,20 +13,21 @@ type Format = {
 };
 
 export default function HomePage() {
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState("");
   const [formats, setFormats] = useState<Format[]>([]);
-  const [selectedFormat, setSelectedFormat] = useState('');
-  const [status, setStatus] = useState<'idle' | 'fetching' | 'downloading'>('idle');
+  const [selectedFormat, setSelectedFormat] = useState("");
+  const [status, setStatus] = useState<"idle" | "fetching" | "downloading">(
+    "idle"
+  );
   const [countdown, setCountdown] = useState(20);
-  const [countdown1, setCountdown1] = useState(12);
   const [showStarting, setShowStarting] = useState(false);
-  const [error, setError] = useState('');
-  const [videoTitle, setVideoTitle] = useState('');
+  const [error, setError] = useState("");
+  const [videoTitle, setVideoTitle] = useState("");
 
   const fetchFormats = async () => {
     if (!url) return;
-    setStatus('fetching');
-    setError('');
+    setStatus("fetching");
+    setError("");
 
     try {
       const res = await fetch(`/api/formats?url=${encodeURIComponent(url)}`);
@@ -32,18 +35,18 @@ export default function HomePage() {
       const data = await res.json();
 
       setFormats(data.formats || []);
-      setVideoTitle(data.title || 'video');
+      setVideoTitle(data.title || "video");
       if (data.formats?.length) setSelectedFormat(data.formats[0].format_id);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load formats');
+      setError(err instanceof Error ? err.message : "Failed to load formats");
     } finally {
-      setStatus('idle');
+      setStatus("idle");
     }
   };
 
   const handleDownload = () => {
     if (!selectedFormat) return;
-    setStatus('downloading');
+    setStatus("downloading");
     setCountdown(20);
     setShowStarting(false);
 
@@ -52,16 +55,19 @@ export default function HomePage() {
         if (prev <= 1) {
           clearInterval(timer);
           setShowStarting(true);
-          setStatus('idle');
+          setStatus("idle");
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    const safeTitle = videoTitle.replace(/[<>:"/\\|?*]+/g, '').trim() || 'video';
-    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&format=${encodeURIComponent(selectedFormat)}`;
-    const link = document.createElement('a');
+    const safeTitle =
+      videoTitle.replace(/[<>:"/\\|?*]+/g, "").trim() || "video";
+    const downloadUrl = `/api/download?url=${encodeURIComponent(
+      url
+    )}&format=${encodeURIComponent(selectedFormat)}`;
+    const link = document.createElement("a");
     link.href = downloadUrl;
     link.download = `${safeTitle}.mp4`;
     document.body.appendChild(link);
@@ -71,92 +77,93 @@ export default function HomePage() {
 
   const formatLabel = (fmt: Format) => {
     const res = fmt.resolution || fmt.format_note || fmt.format_id;
-    const size = fmt.filesize ? ` • ${(fmt.filesize / (1024 ** 2)).toFixed(1)} MB` : '';
+    const size = fmt.filesize
+      ? ` • ${(fmt.filesize / 1024 ** 2).toFixed(1)} MB`
+      : "";
     return `${res}${size} (${fmt.ext})`;
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 border border-gray-200">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-800 tracking-tight">YouTube Downloader</h1>
-          <p className="text-sm  text-red-500 font-bold mt-1">
-            Coded by: Avanish
-          </p>
-        </div>
-
+    <div className="min-h-screen flex items-center justify-center px-4 bg-[#1a1a1a]">
+      <div className="w-full max-w-2xl p-4">
         {/* URL Input */}
-        <div className="mb-4 font-semibold">
+        <div className="flex items-center gap-3 bg-[#0f0f0f] border border-gray-700 px-4 py-3 rounded-2xl text-white">
+          <span className="text-gray-400 font-semibold text-lg">
+            <IoIosLink />
+          </span>
+
           <input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste YouTube link..."
-            className="w-full p-3 bg-gray-50 rounded-xl border border-gray-300 text-gray-800 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+            placeholder="paste the link here"
+            className="flex-1 bg-transparent font-semibold outline-none text-sm text-gray-200 placeholder-gray-500"
           />
+
+          <button
+            type="button"
+            onClick={() =>
+              navigator.clipboard.readText().then((txt) => setUrl(txt))
+            }
+            className="bg-[#1f1f1f] px-4 py-2 rounded-xl border border-gray-600 text-gray-200 hover:bg-gray-700 text-sm flex font-semibold cursor-pointer items-center gap-1"
+          >
+            <GoPaste />
+            paste
+          </button>
         </div>
 
-        {/* Get Formats Button */}
+        {/* Formats Button */}
         <button
           onClick={fetchFormats}
-          disabled={!url || status === 'fetching'}
-          className="w-full py-3 bg-gray-700 hover:bg-gray-500 disabled:bg-gray-700 text-white rounded-xl  text-sm transition-all font-semibold cursor-pointer duration-200 shadow-sm"
+          disabled={!url || status === "fetching"}
+          className="w-full mt-4 py-3 bg-[3D3B3B] border border-white text-white rounded-xl text-sm font-semibold shadow-md transition-all cursor-pointer disabled:opacity-60 hover:bg-[#3c3c3c]"
         >
-          {status === 'fetching' ? 'Loading formats... ' : 'Get Available Qualities'
-          }
+          {status === "fetching"
+            ? "Loading formats..."
+            : "Get Available Qualities"}
         </button>
 
         {error && (
-          <p className="text-red-600 text-sm mt-3 text-center font-medium bg-red-50 py-2 rounded-lg border border-red-200">
-            {error}
+          <p className="text-red-500 text-center mt-3 text-sm">{error}</p>
+        )}
+
+        {videoTitle && formats.length > 0 && (
+          <p className="mt-3 text-center text-white text-sm opacity-60">
+            {videoTitle}
           </p>
         )}
 
-        {/* Video Title */}
-        {videoTitle && formats.length > 0 && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <p className="text-sm text-blue-800 font-medium text-center">
-               {videoTitle}
-            </p>
-          </div>
-        )}
-
-        {/* Format Selection */}
+        {/* Format Dropdown */}
         {formats.length > 0 && (
-          <div className="mt-5">
-            <select
-              value={selectedFormat}
-              onChange={(e) => setSelectedFormat(e.target.value)}
-              className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-            >
-              {formats.map((fmt) => (
-                <option key={fmt.format_id} value={fmt.format_id}>
-                  {formatLabel(fmt)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={selectedFormat}
+            onChange={(e) => setSelectedFormat(e.target.value)}
+            className="w-full mt-3 py-3 bg-[#1a1a1a] border border-gray-700 rounded-xl text-gray-200 text-sm"
+          >
+            {formats.map((fmt) => (
+              <option key={fmt.format_id} value={fmt.format_id}>
+                {formatLabel(fmt)}
+              </option>
+            ))}
+          </select>
         )}
 
         {/* Download Button */}
         {selectedFormat && (
           <button
             onClick={handleDownload}
-            disabled={status === 'downloading'}
-            className="mt-5 w-full py-3 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-500 text-white rounded-xl font-medium text-sm transition-all cursor-pointer duration-200 shadow-sm"
+            disabled={status === "downloading"}
+            className="mt-4 w-full py-3 bg-[#3D3B3B] border font-semibold border-white text-white rounded-xl text-sm transition-all cursor-pointer disabled:opacity-60 hover:bg-[#3c3c3c]"
           >
-            {status === 'downloading' ? (
+            {status === "downloading" ? (
               <>Downloading... ({countdown}s)</>
             ) : showStarting ? (
-              'Starting download...'
+              "Starting download..."
             ) : (
-              'Download Video'
+              "Download Video"
             )}
           </button>
         )}
-
-       
       </div>
     </div>
   );
