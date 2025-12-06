@@ -1,10 +1,27 @@
 import { NextRequest } from 'next/server';
 import { spawn, ChildProcess } from 'child_process';
 import { Readable } from 'stream';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { access, constants } from 'node:fs/promises';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // Only respected on some platforms
+export const maxDuration = 300;
+
+// Resolve project root and cookies path
+const __filename = fileURLToPath(import.meta.url);
+const PROJECT_ROOT = join(__filename, '../../../'); // app/api/download/route.ts → project root
+const COOKIES_PATH = join(PROJECT_ROOT, 'cookies.txt');
+
+async function hasCookiesFile(): Promise<boolean> {
+  try {
+    await access(COOKIES_PATH, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function sanitizeAscii(title: string): string {
   return title
@@ -24,18 +41,17 @@ function sanitizeUtf8(title: string): string {
 }
 
 async function fetchVideoTitle(url: string): Promise<string> {
+  const useCookies = await hasCookiesFile();
+  const args = [
+    ...(useCookies ? ['--cookies', COOKIES_PATH] : []),
+    '--no-warnings',
+    '--compat-options', 'no-youtube-unavailable-videos',
+    '--dump-json',
+    url,
+  ];
+
   try {
-    const proc = spawn('yt-dlp', [
-      '--cookies', 
-      // '/home/ubuntu/yt-downloader/cookies.txt',   // ✅ Added
-      './cookies.txt',
-      '--no-warnings',
-      '--compat-options', 'no-youtube-unavailable-videos',
-      '--dump-json',
-      url,
-    ]);
-
-
+    const proc = spawn('yt-dlp', args);
     let stdout = '';
     let stderr = '';
 
@@ -49,6 +65,8 @@ async function fetchVideoTitle(url: string): Promise<string> {
     if (exitCode === 0) {
       const info = JSON.parse(stdout);
       return info.title || 'video';
+    } else {
+      console.warn('yt-dlp title fetch failed:', stderr);
     }
   } catch (err) {
     console.warn('Failed to fetch video title:', err);
@@ -60,7 +78,6 @@ export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
   const formatId = request.nextUrl.searchParams.get('format') || 'best';
 
-  // Validate URL
   if (!url || (!url.includes('youtube.com') && !url.includes('youtu.be'))) {
     return new Response('Invalid YouTube URL', { status: 400 });
   }
@@ -71,35 +88,34 @@ export async function GET(request: NextRequest) {
     return new Response('Invalid URL', { status: 400 });
   }
 
-  // Fetch title for filename
   const title = await fetchVideoTitle(url);
   const asciiName = sanitizeAscii(title) || 'video';
   const utf8Name = sanitizeUtf8(title) || 'video';
   const fallback = `${asciiName}.mp4`;
   const encoded = encodeURIComponent(`${utf8Name}.mp4`);
 
-  // Create readable stream
   const stream = new Readable();
   stream._read = () => {};
 
-  // Spawn yt-dlp process
-  const ytDlp: ChildProcess = spawn('yt-dlp', [
-  '--cookies', '/home/ubuntu/yt-downloader/cookies.txt',   // ✅ Added
-  '--no-warnings',
-  '--no-call-home',
-  '--user-agent',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  '--referer',
-  'https://www.youtube.com/',
-  '-f',
-  formatId,
-  '--merge-output-format',
-  'mp4',
-  '-o',
-  '-',
-  url,
-]);
+  const useCookies = await hasCookiesFile();
+  const args = [
+    ...(useCookies ? ['--cookies', COOKIES_PATH] : []),
+    '--no-warnings',
+    '--no-call-home',
+    '--user-agent',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    '--referer',
+    'https://www.youtube.com/',
+    '-f',
+    formatId,
+    '--merge-output-format',
+    'mp4',
+    '-o',
+    '-',
+    url,
+  ];
 
+  const ytDlp: ChildProcess = spawn('yt-dlp', args);
 
   let clientDisconnected = false;
 
@@ -110,12 +126,10 @@ export async function GET(request: NextRequest) {
     stream.destroy();
   };
 
-  // ✅ Reliable client disconnect detection
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     request.signal.addEventListener('abort', cleanup);
   }
 
-  // Timeout (5 minutes max)
   const TIMEOUT_MS = 295_000;
   const timeoutId = setTimeout(() => {
     if (!clientDisconnected) {
@@ -124,11 +138,8 @@ export async function GET(request: NextRequest) {
     }
   }, TIMEOUT_MS);
 
-  // Handle yt-dlp output
   ytDlp.stdout?.on('data', (chunk) => {
-    if (!clientDisconnected) {
-      stream.push(chunk);
-    }
+    if (!clientDisconnected) stream.push(chunk);
   });
 
   ytDlp.stderr?.on('data', (data) => {
@@ -152,7 +163,7 @@ export async function GET(request: NextRequest) {
         console.error(msg);
         stream.destroy(new Error(msg));
       } else {
-        stream.push(null); // EOF
+        stream.push(null);
       }
     }
   });

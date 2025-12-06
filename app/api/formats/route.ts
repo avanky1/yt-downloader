@@ -1,10 +1,26 @@
 // app/api/formats/route.ts
 import { NextRequest } from "next/server";
 import { spawn } from "child_process";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { access, constants } from "node:fs/promises";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+const __filename = fileURLToPath(import.meta.url);
+const PROJECT_ROOT = join(__filename, "../../../");
+const COOKIES_PATH = join(PROJECT_ROOT, "cookies.txt");
+
+async function hasCookiesFile(): Promise<boolean> {
+  try {
+    await access(COOKIES_PATH, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function runYtDlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -26,6 +42,16 @@ function runYtDlp(args: string[]): Promise<string> {
   });
 }
 
+// Extract height from resolution string
+function getFormatHeight(format: any): number {
+  if (!format.resolution) return 0;
+  const match = format.resolution.match(/^(\d+)x(\d+)$/);
+  if (match) return parseInt(match[2], 10);
+  const pMatch = format.resolution.match(/^(\d+)p$/);
+  if (pMatch) return parseInt(pMatch[1], 10);
+  return 0;
+}
+
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url");
   if (!url || (!url.includes("youtube.com") && !url.includes("youtu.be"))) {
@@ -39,25 +65,25 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // ✅ NO --cookies FLAG — safe for public videos
-    const stdout = await runYtDlp([
-      "--cookies",
-      // "/home/ubuntu/yt-downloader/cookies.txt",    
-      "./cookies.txt",
+    const useCookies = await hasCookiesFile();
+    const args = [
+      ...(useCookies ? ["--cookies", COOKIES_PATH] : []),
       "--no-warnings",
-      "--compat-options",
-      "no-youtube-unavailable-videos",
+      "--compat-options", "no-youtube-unavailable-videos",
       "--dump-json",
       url,
-    ]);
+    ];
 
-    const info = JSON.parse(stdout) as { formats?: unknown[] };
+    const stdout = await runYtDlp(args);
+    const info = JSON.parse(stdout);
 
     type YTFormat = {
+      format_id: string;
+      ext: string;
       vcodec?: string;
       acodec?: string;
-      ext?: string;
       resolution?: string;
+      filesize?: number;
       [key: string]: unknown;
     };
 
@@ -65,32 +91,48 @@ export async function GET(request: NextRequest) {
       ? (info.formats as YTFormat[])
       : [];
 
+    // ✅ ONLY combined (video+audio) formats
+    // ✅ ONLY MP4 (most compatible)
+    // ✅ Exclude fragmented/DASH/HLS
     const filtered = formats
-      .filter(
-        (f) =>
-          (f.vcodec !== "none" || f.acodec !== "none") &&
-          ["mp4", "webm"].includes(f.ext || "")
-      )
+      .filter((f) => {
+        // Must have both video and audio
+        if (f.vcodec === "none" || f.acodec === "none") return false;
+        // Only MP4 (remove if you want WebM)
+        if (f.ext !== "mp4") return false;
+        // Skip DASH/HLS (fragmented)
+        if (f.fps === null || f.tbr === null) return false; // heuristic
+        if (f.resolution?.includes("x") === false) return false;
+        return true;
+      })
       .sort((a, b) => {
-        const resA = parseInt(a.resolution?.split("x")?.[1] ?? "0", 10) || 0;
-        const resB = parseInt(b.resolution?.split("x")?.[1] ?? "0", 10) || 0;
-        return resB - resA;
+        const hA = getFormatHeight(a);
+        const hB = getFormatHeight(b);
+        return hB - hA; // highest first
       });
 
-    return Response.json({ formats: filtered });
+    // Dedupe by height
+    const seen = new Set<number>();
+    const deduped = filtered.filter((f) => {
+      const h = getFormatHeight(f);
+      if (seen.has(h)) return false;
+      seen.add(h);
+      return true;
+    });
+
+    // Add clean label for frontend
+    const withLabels = deduped.map((f) => ({
+      ...f,
+      label: `${getFormatHeight(f)}p (${f.ext})`,
+    }));
+
+    return Response.json({
+      title: info.title || "YouTube Video",
+      formats: withLabels,
+    });
   } catch (err: unknown) {
     console.error("Format fetch error:", err);
-    const getErrorMessage = (e: unknown): string => {
-      if (e instanceof Error) return e.message;
-      if (typeof e === "string") return e;
-      try {
-        return JSON.stringify(e) ?? "unknown";
-      } catch {
-        return "unknown";
-      }
-    };
-    return new Response(`Failed: ${getErrorMessage(err) || "unknown"}`, {
-      status: 500,
-    });
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return new Response(`Failed: ${msg}`, { status: 500 });
   }
 }
